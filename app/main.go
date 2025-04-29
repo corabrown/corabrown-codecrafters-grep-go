@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
+	"unicode/utf8"
+	"strings"
 )
 
 // Ensures gofmt doesn't remove the "bytes" import above (feel free to remove this!)
@@ -34,23 +35,55 @@ func main() {
 
 	if !ok {
 		os.Exit(1)
+		fmt.Println("not found")
 	}
+	fmt.Println("found")
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
 
-	switch pattern{
+	switch pattern {
 	case "\\d":
-		for i := 0; i < 10; i++ {
-			if ok := bytes.ContainsAny(line, strconv.Itoa(i)); ok {
+		if ok := matchDigit(line); ok {
+			return ok, nil
+		}
+	case "\\w": 
+		if ok := matchAlphaNumeric(line); ok {
+			return ok, nil 
+		}
+	}
+	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
+		for _, r := range pattern[1:len(pattern)-1] {
+			if ok := bytes.ContainsAny(line, string(r)); ok {
 				return ok, nil 
 			}
-			
 		}
 	}
 
-	ok := bytes.ContainsAny(line, pattern)
+	if utf8.RuneCountInString(pattern) == 1 {
+		if ok := bytes.ContainsAny(line, pattern); ok {
+			return ok, nil 
+		}
+	}
+	
+	return false, nil
+}
 
 
-	return ok, nil
+func matchDigit(line []byte) bool {
+	for _, b := range line {
+		if (b >= '0' && b <= '9') {
+			return true 
+		 }
+	}
+	return false 
+}
+
+func matchAlphaNumeric(line []byte) bool {
+	for _, b := range line {
+		if (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') {
+			return true 
+		 }
+	}
+	return false 
 }
