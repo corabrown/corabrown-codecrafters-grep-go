@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// Ensures gofmt doesn't remove the "bytes" import above (feel free to remove this!)
-var _ = bytes.ContainsAny
-
 // Usage: echo <input_text> | your_program.sh -E <pattern>
 func main() {
 	if len(os.Args) < 3 || os.Args[1] != "-E" {
@@ -42,6 +39,12 @@ func main() {
 
 func matchLine(line []byte, pattern string) (bool, error) {
 
+	if utf8.RuneCountInString(pattern) == 1 {
+		if ok := bytes.ContainsAny(line, pattern); ok {
+			return ok, nil 
+		}
+	}
+
 	switch pattern {
 	case "\\d":
 		if ok := matchDigit(line); ok {
@@ -52,17 +55,19 @@ func matchLine(line []byte, pattern string) (bool, error) {
 			return ok, nil 
 		}
 	}
+	if strings.HasPrefix(pattern, "[^") && strings.HasSuffix(pattern, "]") {
+		for _, b := range line {
+			if !bytes.ContainsAny([]byte{b}, pattern[2:len(pattern)-1]) {
+				return true, nil 
+			}
+		}
+		return false, nil 
+	}
 	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
 		for _, r := range pattern[1:len(pattern)-1] {
 			if ok := bytes.ContainsAny(line, string(r)); ok {
 				return ok, nil 
 			}
-		}
-	}
-
-	if utf8.RuneCountInString(pattern) == 1 {
-		if ok := bytes.ContainsAny(line, pattern); ok {
-			return ok, nil 
 		}
 	}
 	
