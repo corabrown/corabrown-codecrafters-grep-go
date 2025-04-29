@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
+	"strconv"
 )
 
 // Ensures gofmt doesn't remove the "bytes" import above (feel free to remove this!)
@@ -35,22 +35,22 @@ func main() {
 	if !ok {
 		os.Exit(1)
 	}
-
-	// default exit code is 0 which means success
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
-	if utf8.RuneCountInString(pattern) != 1 {
-		return false, fmt.Errorf("unsupported pattern: %q", pattern)
+
+	switch pattern{
+	case "\\d":
+		for i := 0; i < 10; i++ {
+			if ok := bytes.ContainsAny(line, strconv.Itoa(i)); ok {
+				return ok, nil 
+			}
+			
+		}
 	}
 
-	var ok bool
+	ok := bytes.ContainsAny(line, pattern)
 
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
-
-	// Uncomment this to pass the first stage
-	ok = bytes.ContainsAny(line, pattern)
 
 	return ok, nil
 }
