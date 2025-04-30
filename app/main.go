@@ -39,22 +39,48 @@ func main() {
 
 func matchLine(line []byte, pattern string) (bool, error) {
 
+	matchFound := false 
+	patternComponents := parsePattern(pattern)
+	matchedPatternIndex := 0 
+	for _, b := range line {
+		switch string(patternComponents[matchedPatternIndex]) {
+		case "\\d":
+			if (b >= '0' && b <= '9') {
+				matchFound = true 
+				matchedPatternIndex += 1 
+			} else {
+				matchFound = false 
+				matchedPatternIndex = 0 
+			}
+		case "\\w":
+			if (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') {
+				matchFound = true 
+				matchedPatternIndex += 1 
+			} else {
+				matchFound = false 
+				matchedPatternIndex = 0
+			}
+		default: 
+			if b == patternComponents[matchedPatternIndex][0] {
+				matchFound = true 
+				matchedPatternIndex += 1 
+			} else {
+				matchFound = false 
+				matchedPatternIndex = 0
+			}
+		}	
+		if (matchedPatternIndex == len(patternComponents)) && matchFound {
+			return true, nil 
+		}
+	}
+
+
 	if utf8.RuneCountInString(pattern) == 1 {
 		if ok := bytes.ContainsAny(line, pattern); ok {
 			return ok, nil 
 		}
 	}
 
-	switch pattern {
-	case "\\d":
-		if ok := matchDigit(line); ok {
-			return ok, nil
-		}
-	case "\\w": 
-		if ok := matchAlphaNumeric(line); ok {
-			return ok, nil 
-		}
-	}
 	if strings.HasPrefix(pattern, "[^") && strings.HasSuffix(pattern, "]") {
 		for _, b := range line {
 			if !bytes.ContainsAny([]byte{b}, pattern[2:len(pattern)-1]) {
@@ -74,21 +100,24 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	return false, nil
 }
 
-
-func matchDigit(line []byte) bool {
-	for _, b := range line {
-		if (b >= '0' && b <= '9') {
-			return true 
-		 }
+func parsePattern(pattern string) [][]byte {
+	output := make([][]byte, 0)
+	currentCharacter := ""
+	for i := range pattern {
+		if pattern[i] == byte('\\') {
+			currentCharacter = "\\"
+			continue 
+		}
+		if currentCharacter != "" {
+			if (pattern[i] == 'd') || (pattern[i] == 'w') {
+				output = append(output, []byte(fmt.Sprintf("\\%v", string(pattern[i]))))
+			} else {
+				output = append(output, []byte{'\\'}, []byte{pattern[i]})
+			}
+			currentCharacter = ""
+		} else {
+			output = append(output, []byte{pattern[i]})
+		}
 	}
-	return false 
-}
-
-func matchAlphaNumeric(line []byte) bool {
-	for _, b := range line {
-		if (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') {
-			return true 
-		 }
-	}
-	return false 
+	return output 
 }
