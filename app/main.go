@@ -54,8 +54,14 @@ func matchLine(line []byte, pattern string) (bool, error) {
 
 	reset := false
 	matchedPatternIndex := 0
+	var repeatedCharacter byte 
 	for _, b := range line {
-		switch string(patternComponents[matchedPatternIndex]) {
+		componentToMatch := patternComponents[matchedPatternIndex]
+		if componentToMatch[len(componentToMatch)-1] == '+' {
+			repeatedCharacter = componentToMatch[0]
+			componentToMatch = componentToMatch[:len(componentToMatch)-1]
+		}
+		switch string(componentToMatch) {
 		case "\\d":
 			if b >= '0' && b <= '9' {
 				matchFound = true
@@ -71,9 +77,12 @@ func matchLine(line []byte, pattern string) (bool, error) {
 				reset = true
 			}
 		default:
-			if b == patternComponents[matchedPatternIndex][0] {
+			if b == componentToMatch[0] {
 				matchFound = true
 				matchedPatternIndex += 1
+			} else if b == repeatedCharacter {
+				matchFound = true 
+				repeatedCharacter = 0  
 			} else {
 				reset = true
 			}
@@ -118,6 +127,12 @@ func parsePattern(pattern string) [][]byte {
 		if pattern[i] == byte('\\') {
 			currentCharacter = "\\"
 			continue
+		}
+		if pattern[i] == '+' {
+			if len(output) != 0 {
+				output[len(output)-1] = append(output[len(output)-1], pattern[i])
+			}
+			continue 
 		}
 		if currentCharacter != "" {
 			if (pattern[i] == 'd') || (pattern[i] == 'w') {
