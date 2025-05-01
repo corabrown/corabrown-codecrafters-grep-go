@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
 	"strings"
 )
 
@@ -41,6 +40,16 @@ func matchLine(line []byte, pattern string) (bool, error) {
 
 	matchFound := false 
 	patternComponents := parsePattern(pattern)
+
+	var matchBeginningOfString bool 
+	if patternComponents[0][0] == '^'{
+		matchBeginningOfString = true 
+		patternComponents = patternComponents[1:]
+	}
+
+
+
+	reset := false 
 	matchedPatternIndex := 0 
 	for _, b := range line {
 		switch string(patternComponents[matchedPatternIndex]) {
@@ -49,35 +58,34 @@ func matchLine(line []byte, pattern string) (bool, error) {
 				matchFound = true 
 				matchedPatternIndex += 1 
 			} else {
-				matchFound = false 
-				matchedPatternIndex = 0 
+				reset = true 
 			}
 		case "\\w":
 			if (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') {
 				matchFound = true 
 				matchedPatternIndex += 1 
 			} else {
-				matchFound = false 
-				matchedPatternIndex = 0
+				reset = true 
 			}
 		default: 
 			if b == patternComponents[matchedPatternIndex][0] {
 				matchFound = true 
 				matchedPatternIndex += 1 
 			} else {
-				matchFound = false 
-				matchedPatternIndex = 0
+				reset = true
 			}
 		}	
 		if (matchedPatternIndex == len(patternComponents)) && matchFound {
 			return true, nil 
 		}
-	}
-
-
-	if utf8.RuneCountInString(pattern) == 1 {
-		if ok := bytes.ContainsAny(line, pattern); ok {
-			return ok, nil 
+		
+		if reset {
+			if matchBeginningOfString {
+				return false, nil 
+			}
+			matchFound = false
+			matchedPatternIndex = 0 
+			reset = false 
 		}
 	}
 
