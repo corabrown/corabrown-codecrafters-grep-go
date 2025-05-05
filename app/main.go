@@ -42,62 +42,58 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	patternComponents := parsePattern(pattern)
 
 	var matchBeginningOfString bool
-	if patternComponents[0][0] == '^' {
+	if patternComponents[0].b == '^' {
 		matchBeginningOfString = true
 		patternComponents = patternComponents[1:]
 	}
-	if patternComponents[len(patternComponents)-1][0] == '$' {
+	if patternComponents[len(patternComponents)-1].b == '$' {
 		patternComponents = patternComponents[:len(patternComponents)-1]
 		startingIndex := len(line) - len(patternComponents)
 		line = line[startingIndex:]
 	}
 
-	reset := false
 	matchedPatternIndex := 0
-	var repeatedCharacter byte 
+	possibleMatches := make(map[patternByte]struct{})
+
 	for _, b := range line {
-		componentToMatch := patternComponents[matchedPatternIndex]
-		if componentToMatch[len(componentToMatch)-1] == '+' {
-			repeatedCharacter = componentToMatch[0]
-			componentToMatch = componentToMatch[:len(componentToMatch)-1]
-		}
-		switch string(componentToMatch) {
-		case "\\d":
-			if b >= '0' && b <= '9' {
-				matchFound = true
-				matchedPatternIndex += 1
-			} else {
-				reset = true
+		possibleMatches[patternComponents[matchedPatternIndex]] = struct{}{}
+		if patternComponents[matchedPatternIndex].isRepeated() {
+			if len(patternComponents) > matchedPatternIndex + 1 {
+				possibleMatches[patternComponents[matchedPatternIndex + 1]] = struct{}{}
+			} else if patternComponents[matchedPatternIndex].qualifier == zeroOrMore {
+				return true, nil 
 			}
-		case "\\w":
-			if (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') {
-				matchFound = true
-				matchedPatternIndex += 1
-			} else {
-				reset = true
-			}
-		default:
-			if b == componentToMatch[0] {
-				matchFound = true
-				matchedPatternIndex += 1
-			} else if b == repeatedCharacter {
-				matchFound = true 
-				repeatedCharacter = 0  
-			} else {
-				reset = true
-			}
-		}
-		if (matchedPatternIndex == len(patternComponents)) && matchFound {
-			return true, nil
 		}
 
-		if reset {
-			if matchBeginningOfString {
-				return false, nil
+		byteMatched := false 
+		for patternByte := range possibleMatches {
+			if patternByte.isMatch(b) {
+				byteMatched = true 
+				if !patternByte.isRepeated() {
+					matchedPatternIndex += 1 
+				}
+				if patternByte.qualifier != repeated {
+					delete(possibleMatches, patternByte)
+				}
+				break
+			} else if patternByte.qualifier == repeated {
+				matchedPatternIndex += 1
+				delete(possibleMatches, patternByte)
 			}
-			matchFound = false
-			matchedPatternIndex = 0
-			reset = false
+
+		}
+		if byteMatched {
+			matchFound = true 
+		} else {
+			if matchBeginningOfString {
+				return false, nil 
+			}
+			matchFound = false 
+			matchedPatternIndex = 0 
+			possibleMatches = make(map[patternByte]struct{})
+		}
+		if matchedPatternIndex == len(patternComponents) && matchFound {
+			return true, nil 
 		}
 	}
 
@@ -120,30 +116,72 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	return false, nil
 }
 
-func parsePattern(pattern string) [][]byte {
-	output := make([][]byte, 0)
-	currentCharacter := ""
+func parsePattern(pattern string) []patternByte {
+	output := make([]patternByte, 0)
+	currentCharacter := patternByte{}
 	for i := range pattern {
-		if pattern[i] == byte('\\') {
-			currentCharacter = "\\"
-			continue
-		}
-		if pattern[i] == '+' {
-			if len(output) != 0 {
-				output[len(output)-1] = append(output[len(output)-1], pattern[i])
+		switch pattern[i] {
+		case byte(escaped):
+			currentCharacter.qualifier = qualifier(pattern[i])
+		case byte(repeated), byte(zeroOrMore):
+			if len(output) > 0 {
+				output[len(output)-1].qualifier = qualifier(pattern[i])
 			}
-			continue 
-		}
-		if currentCharacter != "" {
-			if (pattern[i] == 'd') || (pattern[i] == 'w') {
-				output = append(output, []byte(fmt.Sprintf("\\%v", string(pattern[i]))))
-			} else {
-				output = append(output, []byte{'\\'}, []byte{pattern[i]})
+		default:
+			if currentCharacter.qualifier == escaped {
+				if pattern[i] != 'd' && pattern[i] != 'w' {
+					output = append(output, patternByte{b: '\\'})
+					currentCharacter.qualifier = noQualifier
+				}
 			}
-			currentCharacter = ""
-		} else {
-			output = append(output, []byte{pattern[i]})
+			currentCharacter.b = pattern[i]
+			output = append(output, currentCharacter)
+			currentCharacter = patternByte{}
 		}
 	}
 	return output
+}
+
+type qualifier byte
+
+const (
+	escaped     qualifier = '\\'
+	repeated    qualifier = '+'
+	zeroOrMore  qualifier = '?'
+	noQualifier qualifier = 0
+)
+
+type patternByte struct {
+	b         byte
+	qualifier qualifier
+}
+
+func isInt(b byte) bool {
+	return b >= '0' && b <= '9'
+}
+
+func isAlphanumeric(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+func (v patternByte) isMatch(b byte) (isMatch bool) {
+	switch v.qualifier {
+	case escaped:
+		switch v.b {
+		case 'd':
+			return isInt(b)
+		case 'w':
+			return isAlphanumeric(b)
+		default:
+		}
+	case zeroOrMore:
+		return true 
+	default:
+		return v.b == b
+	}
+	return false
+}
+
+func (v patternByte) isRepeated() bool {
+	return v.qualifier == zeroOrMore || v.qualifier == repeated
 }
