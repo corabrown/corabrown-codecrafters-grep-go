@@ -52,7 +52,7 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	}
 
 	matchedPatternIndex := 0
-	var currentCharacterToMatch patternByte 
+	var currentCharacterToMatch patternByte
 	var previousCharacterToMatch patternByte
 	for _, b := range line {
 		previousCharacterToMatch = patternByte{}
@@ -60,7 +60,7 @@ func matchLine(line []byte, pattern string) (bool, error) {
 			matchedPatternIndex += 1
 		}
 		if matchedPatternIndex == len(patternComponents) && matchFound {
-			return true, nil 
+			return true, nil
 		}
 
 		currentCharacterToMatch = patternComponents[matchedPatternIndex]
@@ -72,18 +72,18 @@ func matchLine(line []byte, pattern string) (bool, error) {
 			}
 		}
 
-		// check for match with current character 
+		// check for match with current character
 		if currentCharacterToMatch.isMatch(b) {
-			matchFound = true 
+			matchFound = true
 			matchedPatternIndex += 1
 		} else if previousCharacterToMatch.isMatch(b) {
-			matchFound = true 
+			matchFound = true
 		} else {
 			matchFound = false
-			matchedPatternIndex = 0 
+			matchedPatternIndex = 0
 		}
 		if matchedPatternIndex == len(patternComponents) && matchFound {
-			return true, nil 
+			return true, nil
 		}
 	}
 
@@ -165,8 +165,11 @@ func (v patternByte) isMatch(b byte) (isMatch bool) {
 		default:
 		}
 	case zeroOrMore:
-		return true 
+		return true
 	default:
+		if v.b == '.' {
+			return true 
+		}
 		return v.b == b
 	}
 	return false
