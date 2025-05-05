@@ -41,10 +41,9 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	matchFound := false
 	patternComponents := parsePattern(pattern)
 
-	var matchBeginningOfString bool
 	if patternComponents[0].b == '^' {
-		matchBeginningOfString = true
 		patternComponents = patternComponents[1:]
+		line = line[:len(patternComponents)]
 	}
 	if patternComponents[len(patternComponents)-1].b == '$' {
 		patternComponents = patternComponents[:len(patternComponents)-1]
@@ -53,44 +52,35 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	}
 
 	matchedPatternIndex := 0
-	possibleMatches := make(map[patternByte]struct{})
-
+	var currentCharacterToMatch patternByte 
+	var previousCharacterToMatch patternByte
 	for _, b := range line {
-		possibleMatches[patternComponents[matchedPatternIndex]] = struct{}{}
-		if patternComponents[matchedPatternIndex].isRepeated() {
-			if len(patternComponents) > matchedPatternIndex + 1 {
-				possibleMatches[patternComponents[matchedPatternIndex + 1]] = struct{}{}
-			} else if patternComponents[matchedPatternIndex].qualifier == zeroOrMore {
-				return true, nil 
+		previousCharacterToMatch = patternByte{}
+		if patternComponents[matchedPatternIndex].qualifier == zeroOrMore {
+			matchedPatternIndex += 1
+		}
+		if matchedPatternIndex == len(patternComponents) && matchFound {
+			return true, nil 
+		}
+
+		currentCharacterToMatch = patternComponents[matchedPatternIndex]
+		if (matchedPatternIndex != 0) && (patternComponents[matchedPatternIndex-1].isRepeated()) {
+			previousCharacterToMatch = patternComponents[matchedPatternIndex-1]
+			if (previousCharacterToMatch.b == currentCharacterToMatch.b) && (currentCharacterToMatch.qualifier == noQualifier) {
+				currentCharacterToMatch.qualifier = previousCharacterToMatch.qualifier
+				patternComponents[matchedPatternIndex] = currentCharacterToMatch
 			}
 		}
 
-		byteMatched := false 
-		for patternByte := range possibleMatches {
-			if patternByte.isMatch(b) {
-				byteMatched = true 
-				if !patternByte.isRepeated() {
-					matchedPatternIndex += 1 
-				}
-				if patternByte.qualifier != repeated {
-					delete(possibleMatches, patternByte)
-				}
-				break
-			} else if patternByte.qualifier == repeated {
-				matchedPatternIndex += 1
-				delete(possibleMatches, patternByte)
-			}
-
-		}
-		if byteMatched {
+		// check for match with current character 
+		if currentCharacterToMatch.isMatch(b) {
+			matchFound = true 
+			matchedPatternIndex += 1
+		} else if previousCharacterToMatch.isMatch(b) {
 			matchFound = true 
 		} else {
-			if matchBeginningOfString {
-				return false, nil 
-			}
-			matchFound = false 
+			matchFound = false
 			matchedPatternIndex = 0 
-			possibleMatches = make(map[patternByte]struct{})
 		}
 		if matchedPatternIndex == len(patternComponents) && matchFound {
 			return true, nil 
