@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -54,54 +53,58 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	matchedPatternIndex := 0
 	var currentCharacterToMatch patternByte
 	var previousCharacterToMatch patternByte
-	for _, b := range line {
-		previousCharacterToMatch = patternByte{}
-		if patternComponents[matchedPatternIndex].qualifier == zeroOrMore {
-			matchedPatternIndex += 1
-		}
-		if matchedPatternIndex == len(patternComponents) && matchFound {
-			return true, nil
-		}
-
-		currentCharacterToMatch = patternComponents[matchedPatternIndex]
-		if (matchedPatternIndex != 0) && (patternComponents[matchedPatternIndex-1].isRepeated()) {
-			previousCharacterToMatch = patternComponents[matchedPatternIndex-1]
-			if (previousCharacterToMatch.b == currentCharacterToMatch.b) && (currentCharacterToMatch.qualifier == noQualifier) {
-				currentCharacterToMatch.qualifier = previousCharacterToMatch.qualifier
-				patternComponents[matchedPatternIndex] = currentCharacterToMatch
+	var nextLineCharacter int
+	lineLoop: 
+		for i, b := range line {
+			if i < nextLineCharacter {
+				continue
 			}
-		}
-
-		// check for match with current character
-		if currentCharacterToMatch.isMatch(b) {
-			matchFound = true
-			matchedPatternIndex += 1
-		} else if previousCharacterToMatch.isMatch(b) {
-			matchFound = true
-		} else {
-			matchFound = false
-			matchedPatternIndex = 0
-		}
-		if matchedPatternIndex == len(patternComponents) && matchFound {
-			return true, nil
-		}
-	}
-
-	if strings.HasPrefix(pattern, "[^") && strings.HasSuffix(pattern, "]") {
-		for _, b := range line {
-			if !bytes.ContainsAny([]byte{b}, pattern[2:len(pattern)-1]) {
+			previousCharacterToMatch = patternByte{}
+			if patternComponents[matchedPatternIndex].qualifier == zeroOrMore {
+				matchedPatternIndex += 1
+			}
+			if matchedPatternIndex == len(patternComponents) && matchFound {
 				return true, nil
 			}
-		}
-		return false, nil
-	}
-	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
-		for _, r := range pattern[1 : len(pattern)-1] {
-			if ok := bytes.ContainsAny(line, string(r)); ok {
-				return ok, nil
+
+			currentCharacterToMatch = patternComponents[matchedPatternIndex]
+			if (matchedPatternIndex != 0) && (patternComponents[matchedPatternIndex-1].isRepeated()) {
+				previousCharacterToMatch = patternComponents[matchedPatternIndex-1]
+				if (previousCharacterToMatch.b == currentCharacterToMatch.b) && (currentCharacterToMatch.qualifier == noQualifier) {
+					currentCharacterToMatch.qualifier = previousCharacterToMatch.qualifier
+					patternComponents[matchedPatternIndex] = currentCharacterToMatch
+				}
 			}
+
+			// check for match with current character
+			if currentCharacterToMatch.isMatch(b) {
+				matchFound = true
+				matchedPatternIndex += 1
+			} else if previousCharacterToMatch.isMatch(b) {
+				matchFound = true
+			} else if currentCharacterToMatch.subPatterns != nil {
+				for _, pat := range currentCharacterToMatch.subPatterns {
+					if match, err := matchLine(line[i:], "^"+pat); err != nil {
+						return false, err
+					} else if match {
+						matchFound = true
+						matchedPatternIndex += 1
+						nextLineCharacter = i + len(pat)
+						if matchedPatternIndex == len(patternComponents) && matchFound {
+							return true, nil
+						}
+						continue lineLoop
+					}
+				}
+			} else {
+				matchFound = false
+				matchedPatternIndex = 0
+			}
+			if matchedPatternIndex == len(patternComponents) && matchFound {
+				return true, nil
+			}
+			nextLineCharacter = i + 1
 		}
-	}
 
 	return false, nil
 }
@@ -109,7 +112,15 @@ func matchLine(line []byte, pattern string) (bool, error) {
 func parsePattern(pattern string) []patternByte {
 	output := make([]patternByte, 0)
 	currentCharacter := patternByte{}
+	inside := false
 	for i := range pattern {
+		if pattern[i] == ')' || pattern[i] == ']' {
+			inside = false
+			continue
+		}
+		if inside {
+			continue
+		}
 		switch pattern[i] {
 		case byte(escaped):
 			currentCharacter.qualifier = qualifier(pattern[i])
@@ -117,6 +128,25 @@ func parsePattern(pattern string) []patternByte {
 			if len(output) > 0 {
 				output[len(output)-1].qualifier = qualifier(pattern[i])
 			}
+		case '[':
+			idx := strings.IndexByte(pattern[i:], ']')
+			if idx != -1 {
+				if pattern[i+1] == '^' {
+					currentCharacter.qualifier = not
+				}
+				currentCharacter.bytes = []byte(pattern[i+1 : i+idx])
+			}
+			inside = true
+			output = append(output, currentCharacter)
+			currentCharacter = patternByte{}
+		case '(':
+			idx := strings.IndexByte(pattern[i:], ')')
+			if idx != -1 {
+				currentCharacter.subPatterns = strings.Split(pattern[i+1:i+idx], "|")
+			}
+			inside = true
+			output = append(output, currentCharacter)
+			currentCharacter = patternByte{}
 		default:
 			if currentCharacter.qualifier == escaped {
 				if pattern[i] != 'd' && pattern[i] != 'w' {
@@ -128,6 +158,7 @@ func parsePattern(pattern string) []patternByte {
 			output = append(output, currentCharacter)
 			currentCharacter = patternByte{}
 		}
+
 	}
 	return output
 }
@@ -139,11 +170,14 @@ const (
 	repeated    qualifier = '+'
 	zeroOrMore  qualifier = '?'
 	noQualifier qualifier = 0
+	not         qualifier = '^'
 )
 
 type patternByte struct {
-	b         byte
-	qualifier qualifier
+	b           byte
+	qualifier   qualifier
+	subPatterns []string
+	bytes       []byte
 }
 
 func isInt(b byte) bool {
@@ -155,22 +189,33 @@ func isAlphanumeric(b byte) bool {
 }
 
 func (v patternByte) isMatch(b byte) (isMatch bool) {
-	switch v.qualifier {
-	case escaped:
-		switch v.b {
-		case 'd':
-			return isInt(b)
-		case 'w':
-			return isAlphanumeric(b)
+	if v.b != 0 {
+		switch v.qualifier {
+		case escaped:
+			switch v.b {
+			case 'd':
+				return isInt(b)
+			case 'w':
+				return isAlphanumeric(b)
+			default:
+			}
+		case zeroOrMore:
+			return true
 		default:
+			if v.b == '.' {
+				return true
+			}
+			return v.b == b
 		}
-	case zeroOrMore:
-		return true
-	default:
-		if v.b == '.' {
-			return true 
+	}
+	if v.bytes != nil {
+		byteEqual := false
+		for _, c := range v.bytes {
+			if c == b {
+				byteEqual = true
+			}
 		}
-		return v.b == b
+		return (v.qualifier != not) == byteEqual
 	}
 	return false
 }
