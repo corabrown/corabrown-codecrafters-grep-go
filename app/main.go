@@ -54,7 +54,7 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	var currentCharacterToMatch patternByte
 	var previousCharacterToMatch patternByte
 	var nextLineCharacter int
-	lineLoop: 
+	lineLoop:
 		for i, b := range line {
 			if i < nextLineCharacter {
 				continue
@@ -89,7 +89,7 @@ func matchLine(line []byte, pattern string) (bool, error) {
 					} else if match {
 						matchFound = true
 						matchedPatternIndex += 1
-						nextLineCharacter = i + len(pat)
+						nextLineCharacter = i + len(strings.Replace(pat, "\\", "", -1))
 						if matchedPatternIndex == len(patternComponents) && matchFound {
 							return true, nil
 						}
@@ -113,51 +113,62 @@ func parsePattern(pattern string) []patternByte {
 	output := make([]patternByte, 0)
 	currentCharacter := patternByte{}
 	inside := false
-	for i := range pattern {
-		if pattern[i] == ')' || pattern[i] == ']' {
-			inside = false
-			continue
-		}
-		if inside {
-			continue
-		}
-		switch pattern[i] {
-		case byte(escaped):
-			currentCharacter.qualifier = qualifier(pattern[i])
-		case byte(repeated), byte(zeroOrMore):
-			if len(output) > 0 {
-				output[len(output)-1].qualifier = qualifier(pattern[i])
+	mainPatternLoop:
+		for i := range pattern {
+			if pattern[i] == ')' || pattern[i] == ']' {
+				inside = false
+				continue
 			}
-		case '[':
-			idx := strings.IndexByte(pattern[i:], ']')
-			if idx != -1 {
-				if pattern[i+1] == '^' {
-					currentCharacter.qualifier = not
+			if inside {
+				continue
+			}
+			switch pattern[i] {
+			case byte(escaped):
+				currentCharacter.qualifier = qualifier(pattern[i])
+			case byte(repeated), byte(zeroOrMore):
+				if len(output) > 0 {
+					output[len(output)-1].qualifier = qualifier(pattern[i])
 				}
-				currentCharacter.bytes = []byte(pattern[i+1 : i+idx])
-			}
-			inside = true
-			output = append(output, currentCharacter)
-			currentCharacter = patternByte{}
-		case '(':
-			idx := strings.IndexByte(pattern[i:], ')')
-			if idx != -1 {
-				currentCharacter.subPatterns = strings.Split(pattern[i+1:i+idx], "|")
-			}
-			inside = true
-			output = append(output, currentCharacter)
-			currentCharacter = patternByte{}
-		default:
-			if currentCharacter.qualifier == escaped {
-				if pattern[i] != 'd' && pattern[i] != 'w' {
-					output = append(output, patternByte{b: '\\'})
-					currentCharacter.qualifier = noQualifier
+			case '[':
+				idx := strings.IndexByte(pattern[i:], ']')
+				if idx != -1 {
+					if pattern[i+1] == '^' {
+						currentCharacter.qualifier = not
+					}
+					currentCharacter.bytes = []byte(pattern[i+1 : i+idx])
 				}
+				inside = true
+				output = append(output, currentCharacter)
+				currentCharacter = patternByte{}
+			case '(':
+				idx := strings.IndexByte(pattern[i:], ')')
+				if idx != -1 {
+					currentCharacter.subPatterns = strings.Split(pattern[i+1:i+idx], "|")
+				}
+				inside = true
+				output = append(output, currentCharacter)
+				currentCharacter = patternByte{}
+			default:
+				if currentCharacter.qualifier == escaped {
+					if pattern[i] == '1' {
+						for _, pat := range output {
+							if pat.subPatterns != nil {
+								output = append(output, pat)
+								currentCharacter = patternByte{}
+								continue mainPatternLoop
+							}
+						}
+					}
+					if pattern[i] != 'd' && pattern[i] != 'w' {
+						output = append(output, patternByte{b: '\\'})
+						currentCharacter.qualifier = noQualifier
+					}
+				}
+				currentCharacter.b = pattern[i]
+				currentCharacter.s = string(pattern[i])
+				output = append(output, currentCharacter)
+				currentCharacter = patternByte{}
 			}
-			currentCharacter.b = pattern[i]
-			output = append(output, currentCharacter)
-			currentCharacter = patternByte{}
-		}
 
 	}
 	return output
@@ -174,6 +185,7 @@ const (
 )
 
 type patternByte struct {
+	s           string
 	b           byte
 	qualifier   qualifier
 	subPatterns []string
