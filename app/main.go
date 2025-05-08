@@ -16,13 +16,15 @@ func main() {
 
 	pattern := os.Args[2]
 
+	fmt.Println(false == false )
+
 	line, err := io.ReadAll(os.Stdin) // assume we're only dealing with a single line
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: read input text: %v\n", err)
 		os.Exit(2)
 	}
 
-	ok, err := matchLine(line, pattern)
+	ok, err, _ := matchLine(line, pattern)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
@@ -35,13 +37,13 @@ func main() {
 	fmt.Println("found")
 }
 
-func matchLine(line []byte, pattern string) (bool, error) {
+func matchLine(line []byte, pattern string) (bool, error, int) {
 
 	matchFound := false
 	p := parsePattern(pattern)
 
 	if len(p.patternComponents) == 0 {
-		return true, nil 
+		return true, nil, 0 
 	}
 
 	if p.currentComponent().b == '^' {
@@ -56,11 +58,13 @@ func matchLine(line []byte, pattern string) (bool, error) {
 
 	var nextLineCharacter int
 	for i := range line {
+		l := string(line[i])
+		_ = l 
 		if i < nextLineCharacter {
 			continue
 		}
 		if p.currentIndex == len(p.patternComponents) {
-			return matchFound, nil
+			return matchFound, nil, i 
 		}
 		if p.currentComponent().hasEnoughMatches() {
 			p.currentIndex += 1 
@@ -81,12 +85,12 @@ func matchLine(line []byte, pattern string) (bool, error) {
 			p.currentIndex += 1 
 		}
 		if p.currentIndex == len(p.patternComponents) {
-			return matchFound, nil
+			return matchFound, nil, i
 		}
 		nextLineCharacter = i + patternLength
 	}
 
-	return false, nil
+	return false, nil, 0
 }
 
 
@@ -161,7 +165,7 @@ mainPatternLoop:
 			idx := strings.IndexByte(pattern[i:], ']')
 			if idx != -1 {
 				if pattern[i+1] == '^' {
-					currentCharacter.qualifier = not
+					currentCharacter.negativeMatch = true
 				}
 				currentCharacter.bytes = []byte(pattern[i+1 : i+idx])
 			}
@@ -222,6 +226,7 @@ type patternSegment struct {
 	bytes       []byte
 	matchesRequired int 
 	matchesFound int 
+	negativeMatch bool 
 }
 
 func isInt(b byte) bool {
@@ -285,18 +290,19 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 		for _, c := range v.bytes {
 			if c == b {
 				byteEqual = true
+				break
 			}
 		}
-		return (v.qualifier != not) == byteEqual, 1 
+		return v.negativeMatch != byteEqual, 1 
 	}
 	if v.subPatterns != nil {
 		for _, pat := range v.subPatterns {
-			ok, err := matchLine(line, pat)
+			ok, err, matchedLineLength := matchLine(line, pat)
 			if err != nil {
 				panic("an error")
 			}
 			if ok {
-				return true, len(strings.Replace(pat, "\\" ,"", -1))
+				return true, matchedLineLength + 1
 			} 
 		}
 		return false, 1 
