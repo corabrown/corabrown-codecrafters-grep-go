@@ -16,8 +16,6 @@ func main() {
 
 	pattern := os.Args[2]
 
-	fmt.Println(false == false )
-
 	line, err := io.ReadAll(os.Stdin) // assume we're only dealing with a single line
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: read input text: %v\n", err)
@@ -46,14 +44,15 @@ func matchLine(line []byte, pattern string) (bool, error, int) {
 		return true, nil, 0 
 	}
 
+	matchBeginning := false 
 	if p.currentComponent().b == '^' {
 		p.patternComponents = p.patternComponents[1:]
-		line = line[:len(p.patternComponents)]
+		matchBeginning = true 
 	}
+	matchEnd := false 
 	if p.lastComponent().b == '$' {
 		p.patternComponents = p.patternComponents[:len(p.patternComponents)-1]
-		startingIndex := len(line) - len(p.patternComponents)
-		line = line[startingIndex:]
+		matchEnd = true 
 	}
 
 	var nextLineCharacter int
@@ -64,6 +63,9 @@ func matchLine(line []byte, pattern string) (bool, error, int) {
 			continue
 		}
 		if p.currentIndex == len(p.patternComponents) {
+			if matchEnd && i != len(line) - 1 {
+				return false, nil, 1 
+			}
 			return matchFound, nil, i 
 		}
 		if p.currentComponent().hasEnoughMatches() {
@@ -77,6 +79,9 @@ func matchLine(line []byte, pattern string) (bool, error, int) {
 			if ok, patternLength = p.previousRepeatedComponent().isMatch(line[i:]); ok {
 				matchFound = true 
 			} else {
+				if matchBeginning {
+					return false, nil, 0 
+				}
 				p.currentIndex = 0 
 			}
 		}
@@ -110,9 +115,6 @@ func (v fullPattern) previousRepeatedComponent() *patternSegment {
 	if v.currentIndex == 0 {
 		return nil 
 	}
-	if !v.patternComponents[v.currentIndex - 1].isRepeated() {
-		return nil 
-	}
 	return &v.patternComponents[v.currentIndex-1]
 }
 
@@ -122,14 +124,6 @@ func (v fullPattern) lastComponent() *patternSegment {
 	}
 	return &v.patternComponents[len(v.patternComponents)-1]
 }
-
-
-// plan: 
-// we need to look at each pattern component until the expected number of matches is made.
-// once that happens, we increment the index of the pattern and check the character against 
-// the next pattern component. If it's not a match, we revert to the previous repeated character (if it exists)
-// until a match is found on the current component 
-
 
 
 func parsePattern(pattern string) fullPattern {
@@ -152,8 +146,8 @@ mainPatternLoop:
 			continue 
 		}
 		switch pattern[i] {
-		case byte(escaped):
-			currentCharacter.qualifier = qualifier(pattern[i])
+		case byte('\\'):
+			currentCharacter.escaped = true 
 		case byte(repeated), byte(zeroOrMore):
 			if len(output) > 0 {
 				output[len(output)-1].qualifier = qualifier(pattern[i])
@@ -183,7 +177,7 @@ mainPatternLoop:
 			output = append(output, currentCharacter)
 			currentCharacter = patternSegment{}
 		default:
-			if currentCharacter.qualifier == escaped {
+			if currentCharacter.escaped {
 				if pattern[i] == '1' {
 					for _, pat := range output {
 						if pat.subPatterns != nil {
@@ -211,7 +205,6 @@ mainPatternLoop:
 type qualifier byte
 
 const (
-	escaped     qualifier = '\\'
 	repeated    qualifier = '+'
 	zeroOrMore  qualifier = '?'
 	noQualifier qualifier = 0
@@ -227,6 +220,7 @@ type patternSegment struct {
 	matchesRequired int 
 	matchesFound int 
 	negativeMatch bool 
+	escaped bool 
 }
 
 func isInt(b byte) bool {
@@ -264,8 +258,8 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 	b := line[0] 
 
 	if v.b != 0 {
-		switch v.qualifier {
-		case escaped:
+
+		if v.escaped {
 			switch v.b {
 			case 'd':
 				return isInt(b), 1
@@ -273,6 +267,9 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 				return isAlphanumeric(b), 1
 			default:
 			}
+		}
+
+		switch v.qualifier {
 		case zeroOrMore:
 			if v.b == b {
 				return true, 1
@@ -297,7 +294,10 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 	}
 	if v.subPatterns != nil {
 		for _, pat := range v.subPatterns {
-			ok, err, matchedLineLength := matchLine(line, pat)
+			if len(line) > 1 {
+				pat = strings.Replace(pat, "$", "", 1)
+			}
+			ok, err, matchedLineLength := matchLine(line, "^" + pat)
 			if err != nil {
 				panic("an error")
 			}

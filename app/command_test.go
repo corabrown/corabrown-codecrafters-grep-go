@@ -7,7 +7,7 @@ import (
 func TestOneRepeat(t *testing.T) {
 	str := []byte("cat")
 	pattern := "ca+t"
-	result, err, _ := matchLine([]byte("cat"), "ca+t")
+	result, err, _ := matchLine(str,pattern)
 	if err != nil {
 		panic("error")
 	}
@@ -16,6 +16,20 @@ func TestOneRepeat(t *testing.T) {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
 }
+
+func TestEscaped(t *testing.T) {
+	str := []byte("123")
+	pattern := "\\d"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
 
 func TestRepeatWithSameCharacter(t *testing.T) {
 	str := []byte("caat")
@@ -106,4 +120,99 @@ func TestSingleBackreferenceHarder(t *testing.T) {
 	if !result {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
+}
+
+func TestAnotherSingleBackreference(t *testing.T) {
+	str := []byte("this with this")
+	pattern := "^(\\w+) with \\1$"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
+
+
+func TestAllMatches(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		pattern  string
+		expected bool
+	}{
+		{
+			"one-repeat",
+			"cat",
+			"ca+t",
+			true,
+		},
+		{
+			"repeat-with-same-character",
+			"caat",
+			"ca+at",
+			true,
+		},
+		{
+			"single-character-non-match",
+			"dog",
+			"f",
+			false,
+		},
+		{
+			"positive-character-groups",
+			"a",
+			"[abcd]",
+			true,
+		},
+		{
+			"zero-or-more",
+			"act",
+			"ca?t",
+			true,
+		},
+		{
+			"alternation",
+			"a cat",
+			"a (cat|dog)",
+			true,
+		},
+		{
+			"single-backreference",
+			"grep 101 is doing grep 101 times",
+			"(\\w\\w\\w\\w \\d\\d\\d) is doing \\1 times",
+			true,
+		},
+		{
+			"single-backreference-harder",
+			"abcd is abcd, not efg",
+			"([abcd]+) is \\1, not [^xyz]+",
+			true,
+		},
+		{
+			"multiple-alternating-groups",
+			"a dog and cats",
+			"a (cat|dog) and (cat|dog)s",
+			true,
+		},
+		{
+			"another-single-backreference",
+			"this starts and ends with this",
+			"^(\\w+) starts and ends with \\1$",
+			true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, _, _ := matchLine([]byte(tt.input), tt.pattern)
+			if result != tt.expected {
+				t.Errorf("incorrect result for %v, %v", string(tt.input), tt.pattern)
+			}
+		})
+	}
+
 }
