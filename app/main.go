@@ -37,9 +37,9 @@ func main() {
 
 func matchLine(line []byte, pattern string) (matchFound bool, err error, matchLength int) {
 
-	defer func() {
-		fmt.Println(string(line), pattern, matchFound)
-	}()
+	// defer func() {
+	// 	fmt.Println(string(line), pattern, matchFound)
+	// }()
 
 	p := parsePattern(pattern)
 
@@ -161,10 +161,10 @@ mainPatternLoop:
 		switch pattern[i] {
 		case byte('\\'):
 			currentCharacter.escaped = true
-		case byte(repeated), byte(zeroOrMore):
+		case byte(repeated), byte(zeroOrOne):
 			if len(output) > 0 {
 				output[len(output)-1].qualifier = qualifier(pattern[i])
-				if pattern[i] == byte(zeroOrMore) {
+				if pattern[i] == byte(zeroOrOne) {
 					output[len(output)-1].matchesRequired = 0
 				}
 			}
@@ -182,8 +182,12 @@ mainPatternLoop:
 			currentCharacter = patternSegment{}
 		case '(':
 			idx := strings.IndexByte(pattern[i:], ')')
+			currentCharacter.subPatterns = make(map[string]bool)
 			if idx != -1 {
-				currentCharacter.subPatterns = strings.Split(pattern[i+1:i+idx], "|")
+				for _, subPat := range strings.Split(pattern[i+1:i+idx], "|") {
+					p := parsePattern(subPat)
+					currentCharacter.subPatterns[subPat] = p.lastComponent().isRepeated()
+				}
 			}
 			currentCharacter.matchesRequired += 1
 			inside = true
@@ -219,7 +223,7 @@ type qualifier byte
 
 const (
 	repeated    qualifier = '+'
-	zeroOrMore  qualifier = '?'
+	zeroOrOne   qualifier = '?'
 	noQualifier qualifier = 0
 	not         qualifier = '^'
 )
@@ -228,7 +232,7 @@ type patternSegment struct {
 	s               string
 	b               byte
 	qualifier       qualifier
-	subPatterns     []string
+	subPatterns     map[string]bool
 	bytes           []byte
 	matchesRequired int
 	matchesFound    int
@@ -287,7 +291,10 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 		}
 
 		switch v.qualifier {
-		case zeroOrMore:
+		case zeroOrOne:
+			if v.matchesFound > 1 {
+				return false, 1
+			}
 			if v.b == b {
 				return true, 1
 			}
@@ -310,7 +317,7 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 		return v.negativeMatch != byteEqual, 1
 	}
 	if v.subPatterns != nil {
-		for _, pat := range v.subPatterns {
+		for pat, _ := range v.subPatterns {
 			if len(line) > 1 {
 				pat = strings.Replace(pat, "$", "", 1)
 			}
@@ -331,5 +338,14 @@ func (v *patternSegment) isRepeated() bool {
 	if v == nil {
 		return false
 	}
-	return v.qualifier == zeroOrMore || v.qualifier == repeated
+
+	if v.subPatterns != nil {
+		for _, ok := range v.subPatterns {
+			if ok {
+				return true
+			}
+		}
+	}
+
+	return v.qualifier == zeroOrOne || v.qualifier == repeated
 }
