@@ -35,96 +35,109 @@ func main() {
 	fmt.Println("found")
 }
 
-func matchLine(line []byte, pattern string) (bool, error, int) {
+func matchLine(line []byte, pattern string) (matchFound bool, err error, matchLength int) {
 
-	matchFound := false
+	defer func() {
+		fmt.Println(string(line), pattern, matchFound)
+	}()
+
 	p := parsePattern(pattern)
 
 	if len(p.patternComponents) == 0 {
-		return true, nil, 0 
+		return true, nil, 0
 	}
 
-	matchBeginning := false 
+	matchBeginning := false
 	if p.currentComponent().b == '^' {
 		p.patternComponents = p.patternComponents[1:]
-		matchBeginning = true 
+		matchBeginning = true
 	}
-	matchEnd := false 
+	matchEnd := false
 	if p.lastComponent().b == '$' {
 		p.patternComponents = p.patternComponents[:len(p.patternComponents)-1]
-		matchEnd = true 
+		matchEnd = true
 	}
 
 	var nextLineCharacter int
 	for i := range line {
 		l := string(line[i])
-		_ = l 
+		_ = l
 		if i < nextLineCharacter {
 			continue
 		}
 		if p.currentIndex == len(p.patternComponents) {
-			if matchEnd && i != len(line) - 1 {
-				return false, nil, 1 
-			}
-			return matchFound, nil, i 
+			p.matchFoundForEverySegment = true
 		}
 		if p.currentComponent().hasEnoughMatches() {
-			p.currentIndex += 1 
+			p.currentIndex += 1
 		}
 
-		var patternLength int 
-		var ok bool 
-		matchFound, patternLength = p.currentComponent().isMatch(line[i:])  
+		var patternLength int
+		var ok bool
+		matchFound, patternLength = p.currentComponent().isMatch(line[i:])
 		if !matchFound {
 			if ok, patternLength = p.previousRepeatedComponent().isMatch(line[i:]); ok {
-				matchFound = true 
+				matchFound = true
 			} else {
 				if matchBeginning {
-					return false, nil, 0 
+					return false, nil, 0
 				}
-				p.currentIndex = 0 
+				if p.matchFoundForEverySegment && matchFound && ((!matchEnd) || i == len(line)-1) {
+					return true, nil, i
+				}
+				p.currentIndex = 0
 			}
 		}
 
 		if p.currentComponent().hasEnoughMatches() {
-			p.currentIndex += 1 
+			p.currentIndex += 1
 		}
 		if p.currentIndex == len(p.patternComponents) {
-			return matchFound, nil, i
+			p.matchFoundForEverySegment = true
 		}
+
+		if p.matchFoundForEverySegment && matchFound && ((!matchEnd) || i == len(line)-1) {
+			return true, nil, i
+		}
+
 		nextLineCharacter = i + patternLength
 	}
 
 	return false, nil, 0
 }
 
-
 type fullPattern struct {
-	patternComponents []patternSegment
-	currentIndex int 
+	patternComponents         []patternSegment
+	currentIndex              int
+	matchFoundForEverySegment bool
 }
 
 func (v fullPattern) currentComponent() *patternSegment {
-	if v.currentIndex > len(v.patternComponents) - 1 {
-		return nil 
+	if v.currentIndex > len(v.patternComponents)-1 {
+		if v.lastComponent().isRepeated() {
+			return v.lastComponent()
+		}
+		return &patternSegment{empty: true}
 	}
 	return &v.patternComponents[v.currentIndex]
 }
 
 func (v fullPattern) previousRepeatedComponent() *patternSegment {
-	if v.currentIndex == 0 {
-		return nil 
+	if (v.currentIndex == 0) || (v.currentIndex > len(v.patternComponents)) {
+		if v.lastComponent().isRepeated() {
+			return v.lastComponent()
+		}
+		return &patternSegment{empty: true}
 	}
 	return &v.patternComponents[v.currentIndex-1]
 }
 
 func (v fullPattern) lastComponent() *patternSegment {
 	if len(v.patternComponents) == 0 {
-		return nil 
+		return &patternSegment{empty: true}
 	}
 	return &v.patternComponents[len(v.patternComponents)-1]
 }
-
 
 func parsePattern(pattern string) fullPattern {
 	output := make([]patternSegment, 0)
@@ -140,21 +153,21 @@ mainPatternLoop:
 			continue
 		}
 		if len(output) > 0 && output[len(output)-1].isRepeated() && (output[len(output)-1].b == pattern[i]) {
-			if output[len(output) - 1].qualifier == repeated {
-				output[len(output) - 1].matchesRequired += 1
-			} 
-			continue 
+			if output[len(output)-1].qualifier == repeated {
+				output[len(output)-1].matchesRequired += 1
+			}
+			continue
 		}
 		switch pattern[i] {
 		case byte('\\'):
-			currentCharacter.escaped = true 
+			currentCharacter.escaped = true
 		case byte(repeated), byte(zeroOrMore):
 			if len(output) > 0 {
 				output[len(output)-1].qualifier = qualifier(pattern[i])
 				if pattern[i] == byte(zeroOrMore) {
-					output[len(output)-1].matchesRequired = 0 
+					output[len(output)-1].matchesRequired = 0
 				}
-			} 
+			}
 		case '[':
 			idx := strings.IndexByte(pattern[i:], ']')
 			if idx != -1 {
@@ -194,7 +207,7 @@ mainPatternLoop:
 			}
 			currentCharacter.b = pattern[i]
 			currentCharacter.s = string(pattern[i])
-			currentCharacter.matchesRequired += 1 
+			currentCharacter.matchesRequired += 1
 			output = append(output, currentCharacter)
 			currentCharacter = patternSegment{}
 		}
@@ -212,15 +225,16 @@ const (
 )
 
 type patternSegment struct {
-	s           string
-	b           byte
-	qualifier   qualifier
-	subPatterns []string
-	bytes       []byte
-	matchesRequired int 
-	matchesFound int 
-	negativeMatch bool 
-	escaped bool 
+	s               string
+	b               byte
+	qualifier       qualifier
+	subPatterns     []string
+	bytes           []byte
+	matchesRequired int
+	matchesFound    int
+	negativeMatch   bool
+	escaped         bool
+	empty           bool
 }
 
 func isInt(b byte) bool {
@@ -231,14 +245,17 @@ func isAlphanumeric(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
-
 func (v *patternSegment) isMatch(line []byte) (matchFound bool, patternLength int) {
+	if v.empty {
+		return false, 1
+	}
+
 	if v == nil {
-		return false, 1  
+		return false, 1
 	}
 	m, i := v.match(line)
 	if m {
-		v.matchesFound += 1 
+		v.matchesFound += 1
 	}
 
 	return m, i
@@ -255,7 +272,7 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 	if len(line) == 0 {
 		return true, 1
 	}
-	b := line[0] 
+	b := line[0]
 
 	if v.b != 0 {
 
@@ -279,7 +296,7 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 			if v.b == '.' {
 				return true, 1
 			}
-			return v.b == b, 1  
+			return v.b == b, 1
 		}
 	}
 	if v.bytes != nil {
@@ -290,30 +307,29 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 				break
 			}
 		}
-		return v.negativeMatch != byteEqual, 1 
+		return v.negativeMatch != byteEqual, 1
 	}
 	if v.subPatterns != nil {
 		for _, pat := range v.subPatterns {
 			if len(line) > 1 {
 				pat = strings.Replace(pat, "$", "", 1)
 			}
-			ok, err, matchedLineLength := matchLine(line, "^" + pat)
+			ok, err, matchedLineLength := matchLine(line, "^"+pat)
 			if err != nil {
 				panic("an error")
 			}
 			if ok {
 				return true, matchedLineLength + 1
-			} 
+			}
 		}
-		return false, 1 
+		return false, 1
 	}
-	return false, 1 
+	return false, 1
 }
 
 func (v *patternSegment) isRepeated() bool {
 	if v == nil {
-		return false 
+		return false
 	}
 	return v.qualifier == zeroOrMore || v.qualifier == repeated
 }
-

@@ -123,7 +123,7 @@ func TestSingleBackreferenceHarder(t *testing.T) {
 }
 
 func TestAnotherSingleBackreference(t *testing.T) {
-	str := []byte("this with this")
+	str := []byte("t with tf")
 	pattern := "^(\\w+) with \\1$"
 	result, err, _ := matchLine(str, pattern)
 	if err != nil {
@@ -131,6 +131,19 @@ func TestAnotherSingleBackreference(t *testing.T) {
 	}
 
 	if !result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
+func TestEnd(t *testing.T) {
+	str := []byte("cats")
+	pattern := "cat$"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if result {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
 }
