@@ -47,11 +47,6 @@ func matchLine(line []byte, pattern string) (matchFound bool, err error, matchLe
 		return true, nil, 0
 	}
 
-	matchBeginning := false
-	if p.currentComponent().b == '^' {
-		p.patternComponents = p.patternComponents[1:]
-		matchBeginning = true
-	}
 	matchEnd := false
 	if p.lastComponent().b == '$' {
 		p.patternComponents = p.patternComponents[:len(p.patternComponents)-1]
@@ -79,7 +74,7 @@ func matchLine(line []byte, pattern string) (matchFound bool, err error, matchLe
 			if ok, patternLength = p.previousRepeatedComponent().isMatch(line[i:]); ok {
 				matchFound = true
 			} else {
-				if matchBeginning {
+				if p.matchBeginning {
 					return false, nil, 0
 				}
 				if p.matchFoundForEverySegment && matchFound && ((!matchEnd) || i == len(line)-1) {
@@ -103,6 +98,10 @@ func matchLine(line []byte, pattern string) (matchFound bool, err error, matchLe
 		nextLineCharacter = i + patternLength
 	}
 
+	if p.matchFoundForEverySegment && matchFound {
+		return true, nil, len(line)
+	}
+
 	return false, nil, 0
 }
 
@@ -110,6 +109,7 @@ type fullPattern struct {
 	patternComponents         []patternSegment
 	currentIndex              int
 	matchFoundForEverySegment bool
+	matchBeginning bool 
 }
 
 func (v fullPattern) currentComponent() *patternSegment {
@@ -119,7 +119,13 @@ func (v fullPattern) currentComponent() *patternSegment {
 		}
 		return &patternSegment{empty: true}
 	}
-	return &v.patternComponents[v.currentIndex]
+
+	
+	if v.patternComponents[v.currentIndex].backReference {
+		v.patternComponents[v.currentIndex].subPatterns = map[string]bool{v.patternComponents[v.patternComponents[v.currentIndex].previousGroupIndex].m: false}
+	}
+
+	return &v.patternComponents[v.currentIndex] 
 }
 
 func (v fullPattern) previousRepeatedComponent() *patternSegment {
@@ -143,8 +149,14 @@ func parsePattern(pattern string) fullPattern {
 	output := make([]patternSegment, 0)
 	currentCharacter := patternSegment{}
 	inside := false
+	var fp fullPattern
 mainPatternLoop:
 	for i := range pattern {
+		if (i == 0) && (pattern[i] == '^') {
+			fp.matchBeginning = true 
+			continue 
+		}
+
 		if pattern[i] == ')' || pattern[i] == ']' {
 			inside = false
 			continue
@@ -196,11 +208,32 @@ mainPatternLoop:
 		default:
 			if currentCharacter.escaped {
 				if pattern[i] == '1' {
-					for _, pat := range output {
+					for j, pat := range output {
 						if pat.subPatterns != nil {
-							output = append(output, pat)
+							output = append(output, patternSegment{
+								previousGroupIndex: j,
+								backReference: true,
+								matchesRequired: 1,
+							})
 							currentCharacter = patternSegment{}
 							continue mainPatternLoop
+						}
+					}
+				}
+				if pattern[i] == '2' {
+					var oneFound bool
+					for j, pat := range output {
+						if pat.subPatterns != nil {
+							if oneFound {
+								output = append(output, patternSegment{
+									previousGroupIndex: j,
+									backReference: true,
+									matchesRequired: 1,
+								})
+								currentCharacter = patternSegment{}
+								continue mainPatternLoop
+							}
+							oneFound = true
 						}
 					}
 				}
@@ -216,7 +249,8 @@ mainPatternLoop:
 			currentCharacter = patternSegment{}
 		}
 	}
-	return fullPattern{patternComponents: output, currentIndex: 0}
+	fp.patternComponents = output
+	return fp
 }
 
 type qualifier byte
@@ -229,16 +263,19 @@ const (
 )
 
 type patternSegment struct {
-	s               string
-	b               byte
-	qualifier       qualifier
-	subPatterns     map[string]bool
-	bytes           []byte
-	matchesRequired int
-	matchesFound    int
-	negativeMatch   bool
-	escaped         bool
-	empty           bool
+	s                  string
+	b                  byte
+	qualifier          qualifier
+	subPatterns        map[string]bool
+	bytes              []byte
+	matchesRequired    int
+	matchesFound       int
+	negativeMatch      bool
+	escaped            bool
+	empty              bool
+	m                  string
+	previousGroupIndex int
+	backReference      bool
 }
 
 func isInt(b byte) bool {
@@ -326,6 +363,7 @@ func (v *patternSegment) match(line []byte) (matchFound bool, patternLength int)
 				panic("an error")
 			}
 			if ok {
+				v.m = v.m + string(line[:matchedLineLength+1])
 				return true, matchedLineLength + 1
 			}
 		}

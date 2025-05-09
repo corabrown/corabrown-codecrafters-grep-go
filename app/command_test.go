@@ -7,7 +7,7 @@ import (
 func TestOneRepeat(t *testing.T) {
 	str := []byte("cat")
 	pattern := "ca+t"
-	result, err, _ := matchLine(str,pattern)
+	result, err, _ := matchLine(str, pattern)
 	if err != nil {
 		panic("error")
 	}
@@ -29,7 +29,6 @@ func TestEscaped(t *testing.T) {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
 }
-
 
 func TestRepeatWithSameCharacter(t *testing.T) {
 	str := []byte("caat")
@@ -96,6 +95,19 @@ func TestAlternation(t *testing.T) {
 	}
 }
 
+func TestSingleBackreferenceEasy(t *testing.T) {
+	str := []byte("cat and cat")
+	pattern := "(cat) and \\1"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
 func TestSingleBackreference(t *testing.T) {
 	str := []byte("grep 101 is doing grep 101 times")
 	pattern := "(\\w\\w\\w\\w \\d\\d\\d) is doing \\1 times"
@@ -130,7 +142,7 @@ func TestAnotherSingleBackreference(t *testing.T) {
 		panic("error")
 	}
 
-	if !result {
+	if result {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
 }
@@ -144,6 +156,45 @@ func TestEnd(t *testing.T) {
 	}
 
 	if result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
+func TestAnotherBackreference(t *testing.T) {
+	str := []byte("abcd is abcd, not efg")
+	pattern := "([abcd]+) is \\1, not [^xyz]+"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
+		t.Fatalf("incorrect result for %v, %v", str, pattern)
+	}
+}
+
+func TestMoreBackReferencing(t *testing.T) {
+	str := []byte("this with this")
+	pattern := "^(\\w+) with \\1$"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
+		t.Fatalf("incorrect result for %v, %v", string(str), pattern)
+	}
+}
+
+func TestDoubleBackreference(t *testing.T) {
+	str := []byte("3 red squares and 3 red circles")
+	pattern := "(\\d+) (\\w+) squares and \\1 \\2 circles"
+	result, err, _ := matchLine(str, pattern)
+	if err != nil {
+		panic("error")
+	}
+
+	if !result {
 		t.Fatalf("incorrect result for %v, %v", str, pattern)
 	}
 }
